@@ -36,241 +36,196 @@ export const register = async (req, res) => {
 
 export const login = async (req, res) => {
   const { loginId, password } = req.body;
-  console.log("로그인 요청:", req.body);
   try {
-    const [users] = await pool.query("SELECT * FROM users WHERE login_id = ?", [
+    const [users] = await pool.query(`SELECT * FROM users WHERE login_id = ?`, [
       loginId,
     ]);
-    const userInfo = users.find((user) => user.login_id === loginId);
 
-    if (!userInfo || !(await bcrypt.compare(password, userInfo.password))) {
-      return res.status(401).send("로그인 실패: 잘못된 아이디 또는 비밀번호");
-    } else {
-      try {
-        const accessToken = jwt.sign(
-          {
-            id: userInfo.user_id,
-            loginId: userInfo.login_id,
-            email: userInfo.email,
-            role: userInfo.role,
-          },
-          process.env.ACCESS_SECRET,
-          { expiresIn: "60m", issuer: "suk" }
-        );
-
-        const refreshToken = jwt.sign(
-          {
-            id: userInfo.user_id,
-            loginId: userInfo.login_id,
-            email: userInfo.email,
-            role: userInfo.role,
-          },
-          process.env.REFRESH_SECRET,
-          { expiresIn: "24h", issuer: "suk" }
-        );
-
-        const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
-        await pool.query(
-          "INSERT INTO refresh_tokens (user_id, token, expires_at) VALUES (?, ?, ?)",
-          [userInfo.user_id, refreshToken, expiresAt]
-        );
-
-        /*
-        res.cookie("accessToken", accessToken, {
-          httpOnly: true,
-          secure: false,
-          sameSite: "None",
-        });
-        */
-
-        //console.log("accessToken", accessToken.substring(0, 20));
-
-        res.status(200).json({
-          message: "Login Success",
-          userInfo,
-          accessToken,
-        });
-      } catch (err) {
-        res.status(500).json(err);
-      }
+    if (users.length === 0) {
+      return res.status(401).json({ message: "잘못된 아이디입니다." });
     }
+
+    const user = users[0];
+
+    const isValidPassword = await bcrypt.compare(
+      String(password),
+      String(user.password)
+    );
+    if (!isValidPassword) {
+      return res.status(401).json({ message: "잘못된 비밀번호입니다." });
+    }
+
+    const payload = {
+      id: user.user_id,
+      loginId: user.login_id,
+      role: user.role,
+    };
+
+    const accessToken = jwt.sign(payload, process.env.ACCESS_SECRET, {
+      expiresIn: "30s",
+      issuer: "suk",
+    });
+
+    const refreshToken = jwt.sign(payload, process.env.REFRESH_SECRET, {
+      expiresIn: "7d",
+      issuer: "suk",
+    });
+
+    const hashedRefreshToken = await bcrypt.hash(refreshToken, 10);
+
+    await pool.query("DELETE FROM refresh_tokens WHERE user_id = ?", [
+      user.user_id,
+    ]);
+
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    await pool.query(
+      "INSERT INTO refresh_tokens (user_id, token, expires_at) VALUES (?, ?, ?)",
+      [user.user_id, hashedRefreshToken, expiresAt]
+    );
+
+    res.cookie("accessToken", accessToken, {
+      httpOnly: true,
+      secure: false, //배포시 true
+      sameSite: "strict",
+      maxAge: 30 * 1000,
+    });
+
+    res.cookie("refreshToken", refreshToken, {
+      httpOnly: true,
+      secure: false,
+      sameSite: "strict",
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+    });
+
+    res.status(200).json({
+      message: "로그인 성공",
+      user: {
+        id: user.user_id,
+        loginId: user.login_id,
+        email: user.email,
+        role: user.role,
+      },
+    });
   } catch (error) {
-    res.status(500).send("서버 오류: " + error.message);
+    console.error("로그인 오류:", error);
+    res.status(500).json({ message: "서버 오류" });
   }
 };
 
 export const refreshToken = async (req, res) => {
-  /*
-  const token = req.cookies.accessToken;
-  if (!token) {
-    return res.status(401).json({ message: "Access token 필요" });
-  }
-  */
-  const authHeader = req.headers.authorization;
+  const refreshToken = req.cookies.refreshToken;
 
-  if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    return res.status(401).json({ message: "Access token 필요" });
+  if (!refreshToken) {
+    return res.status(401).json({ message: "로그인이 필요합니다." });
   }
-
-  const token = authHeader.substring(7);
 
   try {
-    const data = jwt.verify(token, process.env.ACCESS_SECRET);
-    const [users] = await pool.query("SELECT * FROM users WHERE user_id = ?", [
-      data.id,
-    ]);
+    const payload = jwt.verify(refreshToken, process.env.REFRESH_SECRET);
 
-    const userData = users[0];
-    if (!userData) {
-      return res
-        .status(404)
-        .json({ message: "사용자 정보를 찾을 수 없습니다." });
+    const [rows] = await pool.query(
+      "SELECT * FROM refresh_tokens WHERE user_id = ?",
+      [payload.id]
+    );
+
+    if (rows.length === 0) {
+      return res.status(401).json({ message: "유효하지 않은 토큰" });
     }
 
-    const { password, ...others } = userData;
-    res.status(200).json(others);
+    const isValid = await bcrypt.compare(
+      String(refreshToken),
+      String(rows[0].token)
+    );
+
+    if (!isValid) {
+      return res.status(401).json({ message: "유효하지 않은 토큰" });
+    }
+
+    if (new Date() > new Date(rows[0].expires_at)) {
+      await pool.query("DELETE FROM refresh_tokens WHERE user_id = ?", [
+        payload.id,
+      ]);
+      return res.status(401).json({ message: "토큰 만료. 다시 로그인하세요" });
+    }
+
+    const newAccessToken = jwt.sign(
+      {
+        id: payload.id,
+        loginId: payload.loginId,
+        role: payload.role,
+      },
+      process.env.ACCESS_SECRET,
+      { expiresIn: "30s", issuer: "suk" }
+    );
+
+    res.cookie("accessToken", newAccessToken, {
+      httpOnly: true,
+      secure: false,
+      sameSite: "strict",
+      maxAge: 30 * 1000,
+    });
+
+    return res.status(200).json({
+      message: "토큰 갱신 완료",
+      accessToken: newAccessToken,
+    });
   } catch (error) {
     if (error.name === "TokenExpiredError") {
-      try {
-        const decoded = jwt.decode(token);
-        if (!decoded) return res.status(401).json({ message: "잘못된 토큰" });
-        const [rows] = await pool.query(
-          "SELECT * FROM refresh_tokens WHERE user_id = ?",
-          [decoded.id]
-        );
-        if (rows.length === 0) {
-          return res.status(401).json({ message: "Refresh token 필요" });
-        }
-
-        const refreshToken = rows[0].token;
-
-        try {
-          const refreshTokenData = jwt.verify(
-            refreshToken,
-            process.env.REFRESH_SECRET
-          );
-
-          const newAccessToken = jwt.sign(
-            {
-              id: refreshTokenData.id,
-              loginId: refreshTokenData.loginId,
-              email: refreshTokenData.email,
-              role: userInfo.role,
-            },
-            process.env.ACCESS_SECRET,
-            { expiresIn: "60m", issuer: "suk" }
-          );
-
-          /*
-          res.cookie("accessToken", newAccessToken, {
-            httpOnly: true,
-            secure: false,
-            sameSite: "None",
-          });
-          */
-
-          return res.status(200).json({ accessToken: newAccessToken });
-        } catch (refreshError) {
-          await pool.query("DELETE FROM refresh_tokens WHERE user_id = ?", [
-            decoded.id,
-          ]);
-
-          return res
-            .status(401)
-            .json({ message: "Refresh token 만료. 다시 로그인하세요." });
-        }
-      } catch (refreshQueryError) {
-        return res.status(500).json({
-          message: "Refresh token 검증 중 오류",
-          error: refreshQueryError.message,
-        });
+      const payload = jwt.decode(refreshToken);
+      if (payload?.id) {
+        await pool.query("DELETE FROM refresh_tokens WHERE user_id = ?", [
+          payload.id,
+        ]);
       }
-    } else {
-      return res
-        .status(500)
-        .json({ message: "서버 오류", error: error.message });
+      return res.status(401).json({
+        message: "토큰 만료. 다시 로그인하세요",
+      });
     }
+    console.error("토큰 갱신 오류:", error);
+    return res.status(500).json({ message: "서버 오류" });
   }
 };
 
 export const loginSuccess = async (req, res) => {
-  /*
-  let token = req.cookies.accessToken;
-
-  if (!token) {
-    return res.status(401).json({ message: "로그인 필요" });
-  }
-  */
-
-  const authHeader = req.headers.authorization;
-
-  if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    return res.status(401).json({ message: "Access token 필요" });
-  }
-
-  const token = authHeader.substring(7);
-
   try {
-    const data = jwt.verify(token, process.env.ACCESS_SECRET);
+    const [users] = await pool.query(
+      "SELECT user_id, login_id, email, role, userName FROM users WHERE user_id = ?",
+      [req.user_id]
+    );
 
-    const [users] = await pool.query("SELECT * FROM users WHERE user_id = ?", [
-      data.id,
-    ]);
-
-    const userData = users[0];
-    if (!userData) {
-      return res
-        .status(404)
-        .json({ message: "사용자 정보를 찾을 수 없습니다." });
+    if (users.length === 0) {
+      return res.status(404).json({ message: "사용자를 찾을 수 없습니다" });
     }
-    const { password, ...others } = userData;
-    res.status(200).json(others);
+
+    console.log(req.user_id);
+    res.status(200).json(users[0]);
   } catch (error) {
-    return res.status(500).json({ message: "서버 오류", error: error.message });
+    console.error("사용자 정보 조회 오류:", error);
+    res.status(500).json({ message: "서버 오류" });
   }
 };
 
+// 로그아웃
 export const logout = async (req, res) => {
-  /*
-  const token = req.cookies.accessToken;
-  if (!token) {
-    return res.status(401).json({ message: "로그인 필요" });
-  }
-  */
-  const authHeader = req.headers.authorization;
-
-  if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    return res.status(401).json({ message: "Access token 필요" });
-  }
-
-  const token = authHeader.substring(7);
-
   try {
-    const decoded = jwt.verify(token, process.env.ACCESS_SECRET);
-    const userId = decoded.id;
+    await pool.query("DELETE FROM refresh_tokens WHERE user_id = ?", [
+      req.user_id,
+    ]);
 
-    const [result] = await pool.query(
-      "DELETE FROM refresh_tokens WHERE user_id = ?",
-      [userId]
-    );
-
-    if (result.affectedRows === 0) {
-      return res
-        .status(404)
-        .json({ message: "해당 사용자에 대한 Refresh Token이 없습니다." });
-    }
-
-    /*
     res.clearCookie("accessToken", {
       httpOnly: true,
       secure: false,
-      sameSite: "None",
+      sameSite: "strict",
     });
-    */
 
-    res.status(200).json({ message: "Logout Success" });
+    res.clearCookie("refreshToken", {
+      httpOnly: true,
+      secure: false,
+      sameSite: "strict",
+    });
+
+    res.status(200).json({ message: "로그아웃 성공" });
   } catch (error) {
-    console.error("로그아웃 처리 중 오류:", error);
-    res.status(500).json({ message: "서버 오류", error: error.message });
+    console.error("로그아웃 오류:", error);
+    res.status(500).json({ message: "서버 오류" });
   }
 };

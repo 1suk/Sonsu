@@ -112,7 +112,7 @@ app.get("/", (req, res) => {
 app.post("/register", register);
 app.post("/login", login);
 app.get("/refreshToken", refreshToken);
-app.get("/login/success", loginSuccess);
+app.get("/login/success", authenticateToken, loginSuccess);
 app.post("/logout", logout);
 
 app.get("/lessons/:level_id/categories", lessonLevel);

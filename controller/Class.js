@@ -265,7 +265,8 @@ export const selectLessons = async (req, res) => {
     FROM class_lessons cl
     JOIN class_groups cg ON cl.class_id = cg.class_id
     JOIN lessons l ON cl.lesson_id = l.lesson_id
-    JOIN lesson_categories lc ON l.lessonCategory_id = lc.lessonCategory_id
+    JOIN lesson_categories lc ON l.lessonCategory_id = lc.lessonCate
+    gory_id
     WHERE cg.member_id = ?;
     `,
       [memberId]
