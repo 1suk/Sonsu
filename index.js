@@ -1,5 +1,7 @@
-import express from "express";
 import dotenv from "dotenv";
+dotenv.config();
+
+import express from "express";
 import cookieParser from "cookie-parser";
 import cors from "cors";
 import http from "http";
@@ -9,36 +11,36 @@ import {
   refreshToken,
   loginSuccess,
   logout,
-} from "./controller/Login.js";
+} from "./src/domain/auth/auth.controller.js";
 import {
   lessonLevel,
   lessonTopic,
   startLesson,
   CompleteLesson,
-} from "./controller/Lesson.js";
+} from "./src/domain/lesson/lesson.controller.js";
 import {
   checkQuiz,
   deleteWrongAnswers,
   generateQuiz,
   wrongAnswers,
-} from "./controller/Quiz.js";
+} from "./src/domain/quiz/quiz.controller.js";
 import {
   lessonSaved,
   fetchSavedLesson,
   deleteSavedLesson,
-} from "./controller/Review.js";
-import authenticateToken from "./middlewares/authMiddleware.js";
+} from "./src/domain/review/review.controller.js";
+import authenticateToken from "./src/middlewares/authMiddleware.js";
 import { Server as SocketIO } from "socket.io";
 import {
   progressCategory,
   progressTopic,
   continueLesson,
   progressPercentage,
-} from "./controller/Progress.js";
-import { weeklyReport } from "./controller/Report.js";
-import { weeklyRanking } from "./controller/Ranking.js";
-import { attendance } from "./controller/Attendance.js";
-import { isAdmin } from "./middlewares/authMiddleware.js";
+} from "./src/domain/progress/progress.controller.js";
+import { weeklyReport } from "./src/domain/report/report.controller.js";
+import { weeklyRanking } from "./src/domain/ranking/ranking.controller.js";
+import { attendance } from "./src/domain/attendance/attendance.controller.js";
+import { isAdmin } from "./src/middlewares/authMiddleware.js";
 import {
   generateClass,
   deleteClass,
@@ -54,12 +56,11 @@ import {
   getUsersClass,
   deleteUserClass,
   delCategories,
-} from "./controller/Class.js";
-import { editClass } from "./controller/Class.js";
-import { getMypage } from "./controller/Class.js";
+  editClass,
+  getMypage,
+} from "./src/domain/class/class.controller.js";
 // import { weeklyReport } from "./controller/Report.js";
 
-dotenv.config();
 const app = express();
 const server = http.createServer(app);
 
@@ -118,7 +119,7 @@ app.post("/logout", logout);
 app.get("/lessons/:level_id/categories", lessonLevel);
 app.get("/lessons/:category_id/topics", lessonTopic);
 app.post("/lessons/start", authenticateToken, startLesson);
-app.put("/lessons/complete", authenticateToken, CompleteLesson);
+app.post("/lessons/complete", authenticateToken, CompleteLesson);
 
 app.get("/quiz/generate", authenticateToken, generateQuiz);
 app.post("/quiz/check", authenticateToken, checkQuiz);
