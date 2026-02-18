@@ -132,6 +132,8 @@ export const addCategoriesToClass = async (classId, categoryIds) => {
 
   const values = newLessons.map((l) => [classId, l.lesson_id]);
   await classRepository.addLessonsToClass(values);
+
+  throw new Error("테스트: 강제 에러 발생!");
 };
 
 export const removeCategoriesFromClass = async (classId, categoryIds) => {

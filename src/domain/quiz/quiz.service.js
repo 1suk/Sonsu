@@ -2,6 +2,8 @@ import * as quizRepository from "./quiz.repository.js";
 import { addUserPoint } from "../../utils/Point.js";
 
 export const generateQuiz = async (userId) => {
+  const start = performance.now();
+
   const lessonData = await quizRepository.getTodayCompletedLessons(userId);
 
   if (lessonData.length === 0) {
@@ -16,7 +18,10 @@ export const generateQuiz = async (userId) => {
   }
 
   const learnedWords = lessonData.map((l) => l.word);
-  const randomLessons = await quizRepository.getRandomLessonsExcluding(learnedWords, lessonData.length);
+  const randomLessons = await quizRepository.getRandomLessonsExcluding(
+    learnedWords,
+    lessonData.length
+  );
 
   const lessonIds = lessonData.map((lesson) => lesson.lesson_id);
   const animationData = await quizRepository.getLessonsByIds(lessonIds);
@@ -61,11 +66,18 @@ export const generateQuiz = async (userId) => {
     animation_path: quiz.animation_path,
   }));
 
+  const end = performance.now();
+  console.log(`[성능 리포트]
+    - 전체 소요: ${(end - start).toFixed(2)}ms
+  `);
+
   return { sessionId, quizzes: OX_quiz };
 };
 
 export const checkQuiz = async (userId, sessionId, answers) => {
-  const quizData = await quizRepository.getQuizzesWithLessonDetailsBySessionId(sessionId);
+  const quizData = await quizRepository.getQuizzesWithLessonDetailsBySessionId(
+    sessionId
+  );
 
   if (quizData.length === 0) {
     throw new Error("해당 세션의 퀴즈를 찾을 수 없습니다.");
@@ -91,7 +103,12 @@ export const checkQuiz = async (userId, sessionId, answers) => {
   });
 
   const score = results.filter((result) => result.isCorrect).length;
-  const scoreId = await quizRepository.insertQuizScore(userId, sessionId, score, quizData.length);
+  const scoreId = await quizRepository.insertQuizScore(
+    userId,
+    sessionId,
+    score,
+    quizData.length
+  );
 
   if (score >= 3) {
     await addUserPoint({
@@ -121,7 +138,10 @@ export const getWrongAnswers = async (userId) => {
 };
 
 export const deleteWrongAnswer = async (userId, wrongAnswerId) => {
-  const wrongAnswer = await quizRepository.getWrongAnswer(userId, wrongAnswerId);
+  const wrongAnswer = await quizRepository.getWrongAnswer(
+    userId,
+    wrongAnswerId
+  );
   if (!wrongAnswer) {
     throw new Error("저장된 오답 항목이 없습니다");
   }

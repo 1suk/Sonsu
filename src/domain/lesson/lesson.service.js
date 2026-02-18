@@ -67,8 +67,6 @@ export const completeLesson = async (userId, lessonId) => {
     return { alreadyCompleted: true, message: "이미 완료된 강의입니다." };
   }
 
-  // 2. 상태 업데이트
-  console.log("[Service] 상태 업데이트 시도...");
   const success = await lessonRepository.updateUserLessonStatus(
     userId,
     lessonId,
@@ -79,10 +77,8 @@ export const completeLesson = async (userId, lessonId) => {
     throw new Error("강의 완료 처리에 실패했습니다.");
   }
 
-  // 3. userLessonId 조회
   const userLessonId = await lessonRepository.getUserLessonId(userId, lessonId);
 
-  // 4. 레슨 완료 포인트 지급
   try {
     await addUserPoint({
       user_id: userId,
@@ -101,10 +97,8 @@ export const completeLesson = async (userId, lessonId) => {
     throw new Error("카테고리 정보를 가져오는데 실패했습니다.");
   }
 
-  // 6. 완료된 레슨 목록 조회
   const completedLessons = await lessonRepository.getCompletedLessons(userId);
 
-  // 7. 출석 처리
   try {
     await lessonRepository.upsertAttendance(userId);
     console.log("[출석 처리 완료");
@@ -113,7 +107,6 @@ export const completeLesson = async (userId, lessonId) => {
     throw error;
   }
 
-  // 8. 출석 포인트 지급
   try {
     await addUserPoint({
       user_id: userId,
