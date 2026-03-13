@@ -29,6 +29,7 @@ export const findUserByLoginId = async (loginId) => {
   return rows;
 };
 
+
 export const findUserById = async (userId) => {
   const [rows] = await pool.query(
     "SELECT user_id, login_id, email, role, username FROM users WHERE user_id = ?",
@@ -37,25 +38,3 @@ export const findUserById = async (userId) => {
   return rows;
 };
 
-export const deleteRefreshTokenByUserId = async (userId) => {
-  await pool.query("DELETE FROM refresh_tokens WHERE user_id = ?", [userId]);
-};
-
-export const saveRefreshToken = async (
-  userId,
-  hashedRefreshToken,
-  expiresAt
-) => {
-  await pool.query(
-    "INSERT INTO refresh_tokens (user_id, token, expires_at) VALUES (?, ?, ?)",
-    [userId, hashedRefreshToken, expiresAt]
-  );
-};
-
-export const getRefreshTokenByUserId = async (userId) => {
-  const [rows] = await pool.query(
-    "SELECT * FROM refresh_tokens WHERE user_id = ?",
-    [userId]
-  );
-  return rows;
-};

@@ -1,0 +1,41 @@
+services:
+  valkey:
+    image: valkey/valkey:latest
+    container_name: sonsu-valkey
+    ports:
+      - "6379:6379"
+    restart: always
+
+  db:
+    image: mysql:8.0
+    container_name: sonsu-db
+    environment:
+      MYSQL_ROOT_PASSWORD: 1sukadmin
+      MYSQL_DATABASE: sonsu_db
+    ports:
+      - "3306:3306"
+    volumes:
+      - sonsu-db-data:/var/lib/mysql
+    restart: always
+
+  app:
+    build: .
+    container_name: sonsu-app
+    ports:
+      - "5000:5000"
+    environment:
+      - PORT=5000
+      - REDIS_HOST=valkey
+      - REDIS_PORT=6379
+      - ACCESS_SECRET=accesssecret
+      - REFRESH_SECRET=refreshsecret
+      - DB_HOST=db
+      - DB_USER=root
+      - DB_PASSWORD=1sukadmin
+      - DB_NAME=sonsu_db
+    depends_on:
+      - valkey
+      - db
+
+volumes:
+  sonsu-db-data:
