@@ -1,6 +1,8 @@
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import * as authRepository from "./auth.repository.js";
+import redisClient from "../../config/redis.js";
+
 
 export const registerUser = async (userData) => {
   const { username, loginId, password, email } = userData;
@@ -60,13 +62,11 @@ export const authenticateUser = async (loginId, password) => {
   });
 
   const hashedRefreshToken = await bcrypt.hash(refreshToken, 10);
-  await authRepository.deleteRefreshTokenByUserId(user.user_id);
-
-  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
-  await authRepository.saveRefreshToken(
-    user.user_id,
-    hashedRefreshToken,
-    expiresAt
+  // Redis에 저장 (7일 만료)
+  await redisClient.setEx(
+    `refreshToken:${user.user_id}`,
+    7 * 24 * 60 * 60,
+    hashedRefreshToken
   );
 
   return { accessToken, refreshToken, user };
@@ -75,26 +75,18 @@ export const authenticateUser = async (loginId, password) => {
 export const refreshAccessToken = async (refreshToken) => {
   const payload = jwt.verify(refreshToken, process.env.REFRESH_SECRET);
 
-  const rows = await authRepository.getRefreshTokenByUserId(payload.id);
+  const storedToken = await redisClient.get(`refreshToken:${payload.id}`);
 
-  if (rows.length === 0) {
+  if (!storedToken) {
     throw new Error("유효하지 않은 토큰");
   }
 
-  const isValid = await bcrypt.compare(
-    String(refreshToken),
-    String(rows[0].token)
-  );
+  const isValid = await bcrypt.compare(String(refreshToken), storedToken);
 
   if (!isValid) {
     throw new Error("유효하지 않은 토큰");
   }
 
-  if (new Date() > new Date(rows[0].expires_at)) {
-    console.log("[Service] RefreshToken 만료됨");
-    await authRepository.deleteRefreshTokenByUserId(payload.id);
-    throw new Error("토큰 만료. 다시 로그인하세요");
-  }
 
   const newAccessToken = jwt.sign(
     {
@@ -110,7 +102,7 @@ export const refreshAccessToken = async (refreshToken) => {
 };
 
 export const clearUserSession = async (userId) => {
-  await authRepository.deleteRefreshTokenByUserId(userId);
+  await redisClient.del(`refreshToken:${userId}`);
 };
 
 export const getUserInfo = async (userId) => {
@@ -126,6 +118,6 @@ export const handleTokenExpiredError = async (refreshToken) => {
   const payload = jwt.decode(refreshToken);
 
   if (payload?.id) {
-    await authRepository.deleteRefreshTokenByUserId(payload.id);
+    await redisClient.del(`refreshToken:${payload.id}`);
   }
 };
